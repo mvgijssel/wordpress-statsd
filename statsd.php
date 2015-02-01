@@ -29,6 +29,7 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 if (!defined('STATSD_IP')) define( 'STATSD_IP', '127.0.0.1' );
 if (!defined('STATSD_PORT')) define( 'STATSD_PORT', 8125 );
 if (!defined('STATSD_SAMPLE_RATE')) define( 'STATSD_SAMPLE_RATE', 0.5 ); //allows you to override the sample rate for calls that run every page load
+if (!defined('STATSD_APP_NAME')) define( 'STATSD_APP_NAME', 'sampleapp' );
 
 
 /* This one is very important, controls how it shows up in Graphite stats.
@@ -46,16 +47,16 @@ if (!defined('STATSD_NAMESPACE')) {
 
 //the plugin class to track default WP application stats
 class WordPress_StatsD {
-	
+
 	private $statsd;
-	
+
 	public function __construct() {
 		//create global
 		global $statsd;
 		$statsd_connection = new StatsD_Connect(STATSD_IP, STATSD_PORT);
 		$statsd = new StatsD($statsd_connection, STATSD_NAMESPACE);
 		$this->statsd = &$statsd;
-		
+
 		//action hooks
 		add_action( 'wp_login', array(&$this, 'login') );
 		add_action( 'wp_logout', array(&$this, 'logout') );
@@ -63,21 +64,21 @@ class WordPress_StatsD {
 		add_action( 'retrieve_password_key', array(&$this, 'password_reset_gen') );
 		add_action( 'password_reset', array(&$this, 'password_reset_complete') );
 		add_action( 'user_register', array(&$this, 'user_register') );
-		
+
 		add_action( 'publish_post', array(&$this, 'publish_post') );
 		add_action( 'wp_trash_post', array(&$this, 'trash_post') );
 		add_action( 'delete_post', array(&$this, 'delete_post') );
-		
+
 		add_action( 'wp_insert_comment', array(&$this, 'new_comment') );
 		add_action( 'wp_set_comment_status', array(&$this, 'approve_comment'), 10, 2 );
 		add_action( 'trash_comment', array(&$this, 'trash_comment') );
 		add_action( 'spam_comment', array(&$this, 'spam_comment') );
 		add_action( 'unspam_comment', array(&$this, 'unspam_comment') );
-		
+
 		add_action( 'add_attachment', array(&$this, 'add_attachment') );
 		add_action( 'edit_attachment', array(&$this, 'edit_attachment') );
 		add_action( 'delete_attachment', array(&$this, 'delete_attachment') );
-		
+
 		//multisite only hooks
 		if (is_multisite()) {
 			add_action( 'wpmu_new_user', array(&$this, 'user_register') );
@@ -92,135 +93,135 @@ class WordPress_StatsD {
 			add_action( 'make_undelete_blog', array(&$this, 'undelete_blog') );
 			add_action( 'init', array(&$this, 'blog_count') );
 		}
-		
+
 		add_action( 'init', array(&$this, 'user_count') ); //multisite aware
-		
+
 		//http request timing
 		add_filter( 'pre_http_request', array(&$this, 'pre_http'), 10, 3 );
 		add_action( 'http_api_debug', array(&$this, 'post_http'), 10, 5 );
-		
+
 		//wpdb
 		add_action( 'shutdown', array(&$this, 'num_queries') );
-		
+
 		add_action( 'shutdown', array(&$this, 'load_time') );
-		
+
 		add_action( 'xmlrpc_call', array(&$this, 'xmlrpc_call') );
-		
+
 		//trac wp cron
 		add_action( 'init', array(&$this, 'wp_cron') );
-		
+
 		//wp_mail
 		add_filter( 'wp_mail', array(&$this, 'wp_mail') );
 	}
-	
+
 	/* logins/registration */
 	public function login($username) {
 		$this->statsd->increment("wordpress.logins.login");
 	}
-	
+
 	public function logout() {
 		$this->statsd->increment("wordpress.logins.logout");
 	}
-	
+
 	public function login_fail($username) {
 		$this->statsd->increment("wordpress.logins.fail");
 	}
-	
+
 	public function password_reset_gen($username) {
 		$this->statsd->increment("wordpress.logins.reset_start");
 	}
-	
+
 	public function password_reset_complete($user) {
 		$this->statsd->increment("wordpress.logins.reset_complete");
 	}
-	
+
 	public function user_register($user_id) {
 		$this->statsd->increment("wordpress.users.register");
 	}
-	
+
 	/* normal blog actions */
 	public function publish_post($id) {
 		$this->statsd->increment("wordpress.posts.publish");
 	}
-	
+
 	public function trash_post($id) {
 		$this->statsd->increment("wordpress.posts.trash");
 	}
-	
+
 	public function delete_post($id) {
 		$this->statsd->increment("wordpress.posts.delete");
 	}
-	
+
 	public function new_comment($id) {
 		$this->statsd->increment("wordpress.comments.new");
 	}
-	
+
 	public function approve_comment($id, $status) {
 		if ('approve' == $status)
 			$this->statsd->increment("wordpress.comments.approve");
 	}
-	
+
 	public function spam_comment($id) {
 		$this->statsd->increment("wordpress.comments.spam");
 	}
-	
+
 	public function unspam_comment($id) {
 		$this->statsd->increment("wordpress.comments.unspam");
 	}
-	
+
 	public function trash_comment($id) {
 		$this->statsd->increment("wordpress.comments.trash");
 	}
-	
+
 	public function add_attachment($id) {
 		$this->statsd->increment("wordpress.attachments.add");
 	}
-	
+
 	public function edit_attachment($id) {
 		$this->statsd->increment("wordpress.attachments.edit");
 	}
-	
+
 	public function delete_attachment($id) {
 		$this->statsd->increment("wordpress.attachments.delete");
 	}
-	
+
 	/* multisite */
 	public function new_blog($id) {
 		$this->statsd->increment("wordpress.blogs.new");
 	}
-	
+
 	public function spam_blog($id) {
 		$this->statsd->increment("wordpress.blogs.spam");
 	}
-	
+
 	public function ham_blog($id) {
 		$this->statsd->increment("wordpress.blogs.unspam");
 	}
-	
+
 	public function spam_user($id) {
 		$this->statsd->increment("wordpress.users.spam");
 	}
-	
+
 	public function ham_user($id) {
 		$this->statsd->increment("wordpress.users.unspam");
 	}
-	
+
 	public function delete_blog($id) {
 		$this->statsd->increment("wordpress.blogs.delete");
 	}
-	
+
 	public function undelete_blog($id) {
 		$this->statsd->increment("wordpress.blogs.undelete");
 	}
-	
+
 	public function archive_blog($id) {
 		$this->statsd->increment("wordpress.blogs.archive");
 	}
-	
+
 	public function unarchive_blog($id) {
 		$this->statsd->increment("wordpress.blogs.unarchive");
 	}
-	
+
 	public function blog_count() {
 		//Only send this gauge on every hundredth request, it doesn't change often
 		$sample = mt_rand() / mt_getrandmax();
@@ -228,7 +229,7 @@ class WordPress_StatsD {
 			$this->statsd->gauge("wordpress.blogs.count", get_blog_count());
 		}
 	}
-	
+
 	public function user_count() {
 		//Only send this gauge on every hundredth request, it doesn't change often
 		$sample = mt_rand() / mt_getrandmax();
@@ -244,7 +245,7 @@ class WordPress_StatsD {
 			$this->statsd->gauge("wordpress.users.count", $user_count);
 		}
 	}
-	
+
 	public function pre_http($false, $r, $url) {
 		if ( ! is_multisite() ) {
 			if ( false !== strpos( parse_url($url, PHP_URL_PATH), 'wp-cron.php' ) ) {
@@ -258,7 +259,7 @@ class WordPress_StatsD {
 		$this->statsd->startTiming("wordpress.http.requests.$url");
 		return $false;
 	}
-	
+
 	public function post_http($response, $type, $class, $args, $url) {
 		if ( ! is_multisite() ) {
 			if ( false !== strpos( parse_url($url, PHP_URL_PATH), 'wp-cron.php' ) ) {
@@ -274,7 +275,7 @@ class WordPress_StatsD {
 		$this->statsd->increment("wordpress.http.counts.$url");
 		$this->statsd->endBatch();
 	}
-	
+
 	public function num_queries() {
 		//if query tracking is on get specific query details
 		if ( defined( 'SAVEQUERIES' ) ) {
@@ -288,7 +289,7 @@ class WordPress_StatsD {
 					$times[$type] = isset( $times[$type] ) ? $times[$type] + $time : $time;
 					$counts[$type] = isset( $counts[$type] ) ? $counts[$type] + 1 : 1;
 				}
-				
+
 				//now loop through types and send agregate data for each
 				$this->statsd->startBatch();
 				foreach ( $counts as $type => $count ) {
@@ -297,35 +298,35 @@ class WordPress_StatsD {
 				}
 				$this->statsd->endBatch(); //send batched stats
 			}
-			
+
 		} else { //SAVEQUERIES off
-			
+
 			$this->statsd->count("wordpress.wpdb.queries.all", get_num_queries(), STATSD_SAMPLE_RATE);
-			
+
 		}
 	}
-	
+
 	public function load_time() {
 		$load_time = round( 1000 * timer_stop(0) );
 		$this->statsd->timing("wordpress.load_time", $load_time, STATSD_SAMPLE_RATE);
-		
+
 		//prints all udp calls made in footer
 		if ( defined( 'STATSD_DEBUG' ) && STATSD_DEBUG ) {
 			var_dump($this->statsd->msgs);
 		}
 	}
-	
+
 	public function xmlrpc_call($type) {
 		//track the actual call types here
 		$this->statsd->increment("wordpress.xmlrpc.$type");
 	}
-	
+
 	public function wp_cron() {
 		if ( defined('DOING_CRON') ) {
 			$this->statsd->increment("wordpress.cron");
 		}
 	}
-	
+
 	public function wp_mail($wp_mail) {
 		$this->statsd->increment("wordpress.email");
 		return $wp_mail;
@@ -558,7 +559,7 @@ class StatsD
 	 *
 	 * @param string $key
 	 * @param int $value
-	 * 
+	 *
 	 * @return void
 	 */
 	public function gauge($key, $value)
@@ -594,9 +595,11 @@ class StatsD
 			} else {
 					$sampledData = $message;
 			}
-			
+
 			if ( empty( $sampledData ) ) return false; //skip sending empty data
-			
+
+			$sampledData = sprintf('%s|#wordpress:%s', $sampledData, STATSD_APP_NAME);
+
 			if (!$this->_isBatch) {
 						$this->_connection->send($sampledData);
 			} else {
@@ -635,17 +638,17 @@ class StatsD
 	{
 		return $this->_isBatch;
 	}
-	
+
 	/**
 	 * start batch-send-recording
-	 * 
+	 *
 	 * @return void
 	 */
 	public function startBatch()
 	{
 		$this->_isBatch = true;
 	}
-	
+
 	/**
 	 * ends batch-send-recording and sends the recorded messages to the connection
 	 *
@@ -657,7 +660,7 @@ class StatsD
 		$this->_connection->send(join("\n", $this->_batch));
 		$this->_batch = array();
 	}
-	
+
 	/**
 	 * stops batch-recording and resets the batch
 	 *
